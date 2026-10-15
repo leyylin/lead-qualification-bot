@@ -1,0 +1,118 @@
+{
+  "name": "Квалификация лидов (Telegram + AI + Google Sheets)",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": ["message"],
+        "additionalFields": {}
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000001",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [-220, 300],
+      "webhookId": "lead-qualifier-tg-webhook"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.message.text }}",
+        "options": {
+          "systemMessage": "Ты — квалификатор лидов в маркетинговом агентстве. Проанализируй сообщение клиента и извлеки данные. Верни ответ СТРОГО в формате валидного JSON со следующими ключами:\n- niche: ниша бизнеса или суть запроса\n- budget: указанный бюджет (если не указан, напиши 'Не указан')\n- lead_status: 'Горячий' (если бюджет > 100k или есть срочный запрос), 'Теплый' (если бюджет меньше или не указан), 'Нецелевой' (если это спам или вопрос не по теме).\n\nВАЖНО: верни ТОЛЬКО валидный JSON, без markdown, без пояснений и без обрамляющих ```json."
+        }
+      },
+      "id": "a1b2c3d4-0002-4000-8000-000000000002",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [20, 300]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o-mini",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0003-4000-8000-000000000003",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [20, 520]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const raw = $json.output ?? $json.text ?? $json.message?.content ?? JSON.stringify($json);\nlet str = typeof raw === 'string' ? raw : JSON.stringify(raw);\nstr = str.replace(/```json/gi, '').replace(/```/g, '').trim();\nconst match = str.match(/\\{[\\s\\S]*\\}/);\nlet data = {};\nif (match) {\n  try { data = JSON.parse(match[0]); } catch (e) { data = {}; }\n}\nconst tg = $('Telegram Trigger').first().json.message;\nreturn [{\n  json: {\n    niche: data.niche || 'Не указано',\n    budget: data.budget || 'Не указан',\n    lead_status: data.lead_status || 'Теплый',\n    telegram_id: tg.from.id,\n    first_name: tg.from.first_name || '',\n    username: tg.from.username || '',\n    chat_id: tg.chat.id,\n    text: tg.text\n  }\n}];"
+      },
+      "id": "a1b2c3d4-0004-4000-8000-000000000004",
+      "name": "Parse JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [280, 300]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "ВСТАВЬТЕ_ID_ТАБЛИЦЫ",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Дата": "={{ $now.format('yyyy-MM-dd HH:mm') }}",
+            "Telegram ID": "={{ $json.telegram_id }}",
+            "Имя пользователя": "={{ $json.first_name }}",
+            "Ниша/Запрос": "={{ $json.niche }}",
+            "Бюджет": "={{ $json.budget }}",
+            "Статус лида": "={{ $json.lead_status }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0005-4000-8000-000000000005",
+      "name": "Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [520, 300]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Parse JSON').first().json.chat_id }}",
+        "text": "Спасибо за обращение! Ваш запрос принят. Наш менеджер свяжется с вами в ближайшее время.",
+        "additionalFields": {}
+      },
+      "id": "a1b2c3d4-0006-4000-8000-000000000006",
+      "name": "Telegram: ответ клиенту",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [760, 300]
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [[{ "node": "AI Agent", "type": "main", "index": 0 }]]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [[{ "node": "AI Agent", "type": "ai_languageModel", "index": 0 }]]
+    },
+    "AI Agent": {
+      "main": [[{ "node": "Parse JSON", "type": "main", "index": 0 }]]
+    },
+    "Parse JSON": {
+      "main": [[{ "node": "Google Sheets", "type": "main", "index": 0 }]]
+    },
+    "Google Sheets": {
+      "main": [[{ "node": "Telegram: ответ клиенту", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "pinData": {}
+}
